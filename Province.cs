@@ -26,5 +26,10 @@ namespace ModMap
         {
             this.TextCenter = new PointF((rect.MinX + rect.MaxX) / 2, (rect.MinY + rect.MaxY) / 2);
         }
+
+        public int ColorSum()
+        {
+            return (int)ProvinceColor.R + (int)ProvinceColor.G + (int)ProvinceColor.B;
+        }
     }
 }

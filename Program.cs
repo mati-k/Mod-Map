@@ -6,17 +6,16 @@ using System.IO;
 using VectSharp;
 using VectSharp.SVG;
 using System.Drawing.Text;
+using Newtonsoft.Json;
 
 namespace ModMap
 {
     class Program
     {
         private static List<Province> provinces = new List<Province>();
-        private static string modFolder;
-        private const int textIndex = 0;
-
         private static Dictionary<Color, Rect> Borders = new Dictionary<Color, Rect>();
 
+        private static Settings settings;
 
         static void Main(string[] args)
         {
@@ -25,34 +24,34 @@ namespace ModMap
 
             System.Threading.Thread.CurrentThread.CurrentCulture = customCulture;
 
-            modFolder = File.ReadAllText("mod.txt");
+            settings = JsonConvert.DeserializeObject<Settings>(File.ReadAllText("settings.json"));
 
             ReadCsv();
             FindColors();
 
-            WriteBmp(Path.Combine(modFolder, "map", "provinces.bmp"), Color.White);
-            WriteSvg(Path.Combine(modFolder, "map", "provinces.bmp"), Color.White);
+            WriteBmp(Path.Combine(settings.ModFolder, "map", "provinces.bmp"), settings.UseColorContrast, false, Color.White);
+            if (settings.AddMultiSized)
+                WriteBmpMultiSize(Path.Combine(settings.ModFolder, "map", "provinces.bmp"), settings.UseColorContrast, false, Color.White, settings.MultipliedSize);
+            WriteSvg(Path.Combine(settings.ModFolder, "map", "provinces.bmp"), Color.White);
 
-            if (File.Exists("paths.txt"))
+            for (int i = 0; i < settings.AdditionalBitmaps.Count; i++)
             {
-                String[] files = File.ReadAllLines("paths.txt");
-                for (int i = 1; i < files.Length; i++)
+                if (!File.Exists(settings.AdditionalBitmaps[i].Path))
                 {
-                    if (String.IsNullOrWhiteSpace(files[i]))
-                        continue;
-
-                    string[] lineData = files[i].Split(";");
-                    Color color = Color.FromArgb(int.Parse(lineData[1]), int.Parse(lineData[2]), int.Parse(lineData[3]));
-
-                    WriteBmp(lineData[0], color);
-                    WriteSvg(lineData[0], color);
+                    Console.WriteLine("File doesn't exist: " + settings.AdditionalBitmaps[i].Path);
+                    continue;
                 }
+
+                WriteBmp(Path.Combine(settings.AdditionalBitmaps[i].Path), settings.UseColorContrast, settings.AdditionalBitmaps[i].UseDifferentColor, settings.AdditionalBitmaps[i].Color);
+                if (settings.AddMultiSized)
+                    WriteBmpMultiSize(Path.Combine(settings.AdditionalBitmaps[i].Path), settings.UseColorContrast, settings.AdditionalBitmaps[i].UseDifferentColor, settings.AdditionalBitmaps[i].Color, settings.MultipliedSize);
+                WriteSvg(Path.Combine(settings.AdditionalBitmaps[i].Path), Color.White);
             }
         }
 
         public static void ReadCsv()
         {
-            String[] lines = File.ReadAllLines(Path.Combine(modFolder, "map", "definition.csv"));
+            String[] lines = File.ReadAllLines(Path.Combine(settings.ModFolder, "map", "definition.csv"));
             for (int i = 1; i < lines.Length; i++)
             {
                 provinces.Add(new Province(lines[i]));
@@ -61,7 +60,7 @@ namespace ModMap
 
         public static void FindColors()
         {
-            using (Bitmap bitmap = new Bitmap(Path.Combine(modFolder, "map", "provinces.bmp")))
+            using (Bitmap bitmap = new Bitmap(Path.Combine(settings.ModFolder, "map", "provinces.bmp")))
             {
                 for (int i = 0; i < bitmap.Width; i++)
                 {
@@ -97,7 +96,7 @@ namespace ModMap
             }
         }
 
-        public static void WriteBmp(string source, Color color)
+        public static void WriteBmp(string source, bool switchColor, bool useOwnColor, Color color)
         {
             Bitmap bitmap = new Bitmap(source);
             System.Drawing.Graphics graphics = System.Drawing.Graphics.FromImage(bitmap);
@@ -106,10 +105,14 @@ namespace ModMap
             fontCollection.AddFontFile("5x5_pixel.ttf");
 
             System.Drawing.Font font = new System.Drawing.Font(fontCollection.Families[0], 8, GraphicsUnit.Pixel);
-            System.Drawing.Brush brush = new SolidBrush(color);
+
+            System.Drawing.Brush ownBrush = new SolidBrush(color);
+            System.Drawing.Brush primary = new SolidBrush(settings.PrimaryColor);
+            System.Drawing.Brush secondary = new SolidBrush(settings.SecondaryColor);
 
             graphics.SmoothingMode = SmoothingMode.None;
             graphics.CompositingQuality = CompositingQuality.HighQuality;
+            graphics.TextRenderingHint = TextRenderingHint.SingleBitPerPixel;
 
             StringFormat format = new StringFormat();
             format.LineAlignment = StringAlignment.Center;
@@ -119,12 +122,81 @@ namespace ModMap
             {
                 if (Borders.ContainsKey(province.ProvinceColor))
                 {
-                    graphics.DrawString(province.Id, font, brush, province.TextCenter, format);
+                    if (useOwnColor)
+                    {
+                        graphics.DrawString(province.Id, font, ownBrush, province.TextCenter, format);
+                    }
+
+                    else
+                    {
+                        if (switchColor && province.ColorSum() > 500)
+                            graphics.DrawString(province.Id, font, secondary, province.TextCenter, format);
+                        else
+                            graphics.DrawString(province.Id, font, primary, province.TextCenter, format);
+                    }
                 }
             }
 
             graphics.Save();
             bitmap.Save(Path.GetFileNameWithoutExtension(source) + "_filled.bmp");
+        }
+
+        public static void WriteBmpMultiSize(string source, bool switchColor, bool useOwnColor, Color color, int size)
+        {
+            Bitmap originalBitmap = new Bitmap(source);
+            Bitmap bitmap = new Bitmap(originalBitmap, new System.Drawing.Size(originalBitmap.Width * size, originalBitmap.Height * size));
+            //Bitmap bitmap = new Bitmap(originalBitmap.Width * size, originalBitmap.Height * size);
+            //for (int i = 0; i < bitmap.Width; i++)
+            //{
+            //    for (int j = 0; j < bitmap.Height; j++)
+            //    {
+            //        bitmap.SetPixel(i, j, originalBitmap.GetPixel(i / size, j / size));
+            //    }
+            //}
+
+            System.Drawing.Graphics graphics = System.Drawing.Graphics.FromImage(bitmap);
+
+            var fontCollection = new PrivateFontCollection();
+            fontCollection.AddFontFile("5x5_pixel.ttf");
+
+            System.Drawing.Font font = new System.Drawing.Font(fontCollection.Families[0], 8, GraphicsUnit.Pixel);
+
+
+            System.Drawing.Brush ownBrush = new SolidBrush(color);
+            System.Drawing.Brush primary = new SolidBrush(settings.PrimaryColor);
+            System.Drawing.Brush secondary = new SolidBrush(settings.SecondaryColor);
+
+            graphics.SmoothingMode = SmoothingMode.None;
+            graphics.CompositingQuality = CompositingQuality.HighQuality;
+            graphics.TextRenderingHint = TextRenderingHint.SingleBitPerPixel;
+
+            StringFormat format = new StringFormat();
+            format.LineAlignment = StringAlignment.Center;
+            format.Alignment = StringAlignment.Center;
+
+            foreach (Province province in provinces)
+            {
+                if (Borders.ContainsKey(province.ProvinceColor))
+                {
+                    PointF center = new PointF(province.TextCenter.X * size, province.TextCenter.Y * size);
+
+                    if (useOwnColor)
+                    {
+                        graphics.DrawString(province.Id, font, ownBrush, center, format);
+                    }
+
+                    else
+                    {
+                        if (switchColor && province.ColorSum() > 500)
+                            graphics.DrawString(province.Id, font, secondary, center, format);
+                        else
+                            graphics.DrawString(province.Id, font, primary, center, format);
+                    }
+                }
+            }
+
+            graphics.Save();
+            bitmap.Save(Path.GetFileNameWithoutExtension(source) + "_" + size + "_filled.bmp");
         }
 
         public static void WriteSvg(string source, Color color)
