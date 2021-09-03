@@ -2,6 +2,7 @@
  Put province id's over bitmap
  
  All settings are at settings.json
+ 
  File contains
  
  ```
