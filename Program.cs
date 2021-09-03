@@ -45,7 +45,7 @@ namespace ModMap
                     Color color = Color.FromArgb(int.Parse(lineData[1]), int.Parse(lineData[2]), int.Parse(lineData[3]));
 
                     WriteBmp(lineData[0], color);
-                    //WriteSvg(lineData[0], color);
+                    WriteSvg(lineData[0], color);
                 }
             }
         }
